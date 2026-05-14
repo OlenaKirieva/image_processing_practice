@@ -10,7 +10,9 @@ import cv2
 import numpy as np
 
 
-def optical_flow_farneback(prev_gray: np.ndarray, next_gray: np.ndarray, **params: Any) -> np.ndarray:
+def optical_flow_farneback(
+    prev_gray: np.ndarray, next_gray: np.ndarray, **params: Any
+) -> np.ndarray:
     """
     Compute dense optical flow using Farneback algorithm.
 
@@ -26,7 +28,22 @@ def optical_flow_farneback(prev_gray: np.ndarray, next_gray: np.ndarray, **param
     Returns:
         Dense flow field `(H, W, 2)` as float array.
     """
-    raise NotImplementedError("optical_flow_farneback is not implemented")
+    #  параметри алгоритму Фарнебека
+    default_params = dict(
+        pyr_scale=0.5,  # Класична піраміда зображень (зменшення вдвічі на кожному рівні)
+        levels=3,  # Кількість рівнів піраміди
+        winsize=15,  # Розмір вікна середнього значення для згладжування
+        iterations=3,  # Кількість ітерацій на кожному рівні піраміди
+        poly_n=5,  # Розмір околиці для апроксимації поліномом
+        poly_sigma=1.2,  # Стандартне відхилення Гаусса для згладжування поліномів
+        flags=0,
+    )
+
+    default_params.update(params)
+
+    flow = cv2.calcOpticalFlowFarneback(prev_gray, next_gray, None, **default_params)
+
+    return flow
 
 
 def flow_to_hsv(flow_xy: np.ndarray) -> np.ndarray:
@@ -39,7 +56,24 @@ def flow_to_hsv(flow_xy: np.ndarray) -> np.ndarray:
     Returns:
         `uint8` BGR image `(H,W,3)` suitable for `cv2.imwrite`.
     """
-    raise NotImplementedError("flow_to_hsv is not implemented")
+    h, w = flow_xy.shape[:2]
+
+    hsv = np.zeros((h, w, 3), dtype=np.uint8)
+
+    hsv[..., 1] = 255
+
+    dx = flow_xy[..., 0]
+    dy = flow_xy[..., 1]
+
+    mag, ang = cv2.cartToPolar(dx, dy)
+
+    hsv[..., 0] = ang * 180 / np.pi / 2
+
+    hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+
+    bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+    return bgr
 
 
 def main() -> int:
@@ -52,11 +86,24 @@ def main() -> int:
     - compute Farneback optical flow
     - save prev/next/flow visualization to `./out/lab05/`
     """
-    parser = argparse.ArgumentParser(description="Lab 05 skeleton (implement functions first).")
-    parser.add_argument("--img", type=str, default="airplane.bmp", help="Input image from ./imgs/")
-    parser.add_argument("--out", type=str, default="out/lab05", help="Output directory (relative to repo root)")
-    parser.add_argument("--dx", type=float, default=5.0, help="Horizontal translation (pixels)")
-    parser.add_argument("--dy", type=float, default=3.0, help="Vertical translation (pixels)")
+    parser = argparse.ArgumentParser(
+        description="Lab 05 skeleton (implement functions first)."
+    )
+    parser.add_argument(
+        "--img", type=str, default="airplane.bmp", help="Input image from ./imgs/"
+    )
+    parser.add_argument(
+        "--out",
+        type=str,
+        default="out/lab05",
+        help="Output directory (relative to repo root)",
+    )
+    parser.add_argument(
+        "--dx", type=float, default=5.0, help="Horizontal translation (pixels)"
+    )
+    parser.add_argument(
+        "--dy", type=float, default=3.0, help="Vertical translation (pixels)"
+    )
     args = parser.parse_args()
 
     import matplotlib
@@ -77,8 +124,16 @@ def main() -> int:
     try:
         prev = img
         h, w = prev.shape
-        M = np.array([[1.0, 0.0, float(args.dx)], [0.0, 1.0, float(args.dy)]], dtype=np.float32)
-        nxt = cv2.warpAffine(prev, M, dsize=(w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+        M = np.array(
+            [[1.0, 0.0, float(args.dx)], [0.0, 1.0, float(args.dy)]], dtype=np.float32
+        )
+        nxt = cv2.warpAffine(
+            prev,
+            M,
+            dsize=(w, h),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REFLECT_101,
+        )
 
         flow = optical_flow_farneback(prev, nxt)
         vis = flow_to_hsv(flow)

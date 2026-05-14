@@ -35,7 +35,28 @@ def mrf_energy(
     Returns:
         Scalar energy.
     """
-    raise NotImplementedError("mrf_energy is not implemented")
+
+    data_term = np.sum((x - y) ** 2)
+
+    diff_h = x[:, 1:] - x[:, :-1]
+    diff_v = x[1:, :] - x[:-1, :]
+
+    def calculate_penalty(diff):
+        if penalty == "quadratic":
+            return np.sum(diff**2)
+        elif penalty == "huber":
+
+            abs_diff = np.abs(diff)
+            mask = abs_diff <= huber_delta
+            res = np.zeros_like(diff)
+            res[mask] = 0.5 * (diff[mask] ** 2)
+            res[~mask] = huber_delta * (abs_diff[~mask] - 0.5 * huber_delta)
+            return np.sum(res)
+        return 0.0
+
+    smoothness_term = calculate_penalty(diff_h) + calculate_penalty(diff_v)
+
+    return data_term + lambda_smooth * smoothness_term
 
 
 def mrf_denoise(
@@ -60,12 +81,42 @@ def mrf_denoise(
     Returns:
         Restored image with the same shape as `y`.
     """
-    raise NotImplementedError("mrf_denoise is not implemented")
+    x = y.copy().astype(np.float32)
+
+    def psi(d):
+        """Похідна функції штрафу (influence function)."""
+        if penalty == "quadratic":
+            return d
+        elif penalty == "huber":
+            return np.clip(d, -huber_delta, huber_delta)
+        return d
+
+    for _ in range(num_iters):
+
+        grad_data = 2 * (x - y)
+
+        grad_smooth = np.zeros_like(x)
+        grad_smooth[:, 1:] += psi(x[:, 1:] - x[:, :-1])
+        grad_smooth[:, :-1] += psi(x[:, :-1] - x[:, 1:])
+        grad_smooth[1:, :] += psi(x[1:, :] - x[:-1, :])
+        grad_smooth[:-1, :] += psi(x[:-1, :] - x[1:, :])
+
+        full_grad = grad_data + lambda_smooth * grad_smooth
+
+        x -= step * full_grad
+
+    return x
 
 
 def normalize_to_uint8(x: np.ndarray) -> np.ndarray:
     """Min-max normalize array to [0,255] uint8 for visualization."""
-    raise NotImplementedError("normalize_to_uint8 is not implemented")
+
+    x_min, x_max = x.min(), x.max()
+    if x_max > x_min:
+        res = 255.0 * (x - x_min) / (x_max - x_min)
+    else:
+        res = np.zeros_like(x)
+    return res.astype(np.uint8)
 
 
 def main() -> int:
@@ -78,9 +129,18 @@ def main() -> int:
     - denoise with MRF (quadratic and/or huber)
     - save side-by-side result to `./out/lab04/mrf_denoise.png`
     """
-    parser = argparse.ArgumentParser(description="Lab 04 skeleton (implement functions first).")
-    parser.add_argument("--img", type=str, default="lenna.png", help="Input image from ./imgs/")
-    parser.add_argument("--out", type=str, default="out/lab04", help="Output directory (relative to repo root)")
+    parser = argparse.ArgumentParser(
+        description="Lab 04 skeleton (implement functions first)."
+    )
+    parser.add_argument(
+        "--img", type=str, default="lenna.png", help="Input image from ./imgs/"
+    )
+    parser.add_argument(
+        "--out",
+        type=str,
+        default="out/lab04",
+        help="Output directory (relative to repo root)",
+    )
     args = parser.parse_args()
 
     import matplotlib
@@ -111,13 +171,26 @@ def main() -> int:
         noisy = clean + rng.normal(0.0, 18.0, size=clean.shape).astype(np.float32)
         noisy = np.clip(noisy, 0.0, 255.0)
 
-        den_quad = mrf_denoise(noisy, lambda_smooth=0.25, num_iters=80, step=0.1, penalty="quadratic")
-        den_hub = mrf_denoise(noisy, lambda_smooth=0.25, num_iters=80, step=0.1, penalty="huber", huber_delta=8.0)
+        den_quad = mrf_denoise(
+            noisy, lambda_smooth=0.25, num_iters=80, step=0.1, penalty="quadratic"
+        )
+        den_hub = mrf_denoise(
+            noisy,
+            lambda_smooth=0.25,
+            num_iters=80,
+            step=0.1,
+            penalty="huber",
+            huber_delta=8.0,
+        )
 
         e_noisy_q = mrf_energy(noisy, noisy, lambda_smooth=0.25, penalty="quadratic")
         e_quad = mrf_energy(den_quad, noisy, lambda_smooth=0.25, penalty="quadratic")
-        e_noisy_h = mrf_energy(noisy, noisy, lambda_smooth=0.25, penalty="huber", huber_delta=8.0)
-        e_hub = mrf_energy(den_hub, noisy, lambda_smooth=0.25, penalty="huber", huber_delta=8.0)
+        e_noisy_h = mrf_energy(
+            noisy, noisy, lambda_smooth=0.25, penalty="huber", huber_delta=8.0
+        )
+        e_hub = mrf_energy(
+            den_hub, noisy, lambda_smooth=0.25, penalty="huber", huber_delta=8.0
+        )
 
         plt.figure(figsize=(12, 4))
         panels = [

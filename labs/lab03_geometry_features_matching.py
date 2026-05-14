@@ -9,7 +9,23 @@ import cv2
 import numpy as np
 
 
-def warp_affine(image: np.ndarray, M: np.ndarray, out_shape: tuple[int, int], border: str = "reflect") -> np.ndarray:
+def _get_border_mode(border_str: str) -> int:
+    """Допоміжна функція для мапінгу рядка у константу OpenCV."""
+    modes = {
+        "reflect": cv2.BORDER_REFLECT,
+        "constant": cv2.BORDER_CONSTANT,
+        "replicate": cv2.BORDER_REPLICATE,
+        "wrap": cv2.BORDER_WRAP,
+    }
+    return modes.get(border_str, cv2.BORDER_REFLECT)
+
+
+def warp_affine(
+    image: np.ndarray,
+    M: np.ndarray,
+    out_shape: tuple[int, int],
+    border: str = "reflect",
+) -> np.ndarray:
     """
     Warp image with affine transform.
 
@@ -22,10 +38,18 @@ def warp_affine(image: np.ndarray, M: np.ndarray, out_shape: tuple[int, int], bo
     Returns:
         Warped image.
     """
-    raise NotImplementedError("warp_affine is not implemented")
+    border_mode = _get_border_mode(border)
+    return cv2.warpAffine(
+        image, M, (out_shape[1], out_shape[0]), borderMode=border_mode
+    )
 
 
-def warp_perspective(image: np.ndarray, H: np.ndarray, out_shape: tuple[int, int], border: str = "reflect") -> np.ndarray:
+def warp_perspective(
+    image: np.ndarray,
+    H: np.ndarray,
+    out_shape: tuple[int, int],
+    border: str = "reflect",
+) -> np.ndarray:
     """
     Warp image with perspective homography.
 
@@ -38,10 +62,15 @@ def warp_perspective(image: np.ndarray, H: np.ndarray, out_shape: tuple[int, int
     Returns:
         Warped image.
     """
-    raise NotImplementedError("warp_perspective is not implemented")
+    border_mode = _get_border_mode(border)
+    return cv2.warpPerspective(
+        image, H, (out_shape[1], out_shape[0]), borderMode=border_mode
+    )
 
 
-def detect_orb(image: np.ndarray, n_features: int = 500) -> tuple[list[cv2.KeyPoint], np.ndarray | None]:
+def detect_orb(
+    image: np.ndarray, n_features: int = 500
+) -> tuple[list[cv2.KeyPoint], np.ndarray | None]:
     """
     Detect ORB keypoints and descriptors.
 
@@ -52,7 +81,9 @@ def detect_orb(image: np.ndarray, n_features: int = 500) -> tuple[list[cv2.KeyPo
     Returns:
         `(keypoints, descriptors)`, where descriptors may be `None`.
     """
-    raise NotImplementedError("detect_orb is not implemented")
+    orb = cv2.ORB_create(nfeatures=n_features)
+    keypoints, descriptors = orb.detectAndCompute(image, None)
+    return keypoints, descriptors
 
 
 def match_descriptors(
@@ -73,7 +104,17 @@ def match_descriptors(
     Returns:
         Good matches sorted by distance.
     """
-    raise NotImplementedError("match_descriptors is not implemented")
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+
+    raw_matches = matcher.knnMatch(desc1, desc2, k=2)
+
+    good_matches = []
+    for m, n in raw_matches:
+        if m.distance < ratio_test * n.distance:
+            good_matches.append(m)
+
+    good_matches.sort(key=lambda x: x.distance)
+    return good_matches
 
 
 def estimate_homography_from_matches(
@@ -94,7 +135,15 @@ def estimate_homography_from_matches(
     Returns:
         `(H, inlier_mask)` or `(None, None)`.
     """
-    raise NotImplementedError("estimate_homography_from_matches is not implemented")
+    if len(matches) < 4:
+        return None, None
+
+    src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, ransac_thresh)
+
+    return H, mask.ravel().astype(np.uint8) if mask is not None else None
 
 
 def main() -> int:
@@ -107,9 +156,18 @@ def main() -> int:
     - ORB detect + matching + homography estimation visualization
     - save outputs to `./out/lab03/` (no GUI windows)
     """
-    parser = argparse.ArgumentParser(description="Lab 03 skeleton (implement functions first).")
-    parser.add_argument("--img", type=str, default="lenna.png", help="Input image from ./imgs/")
-    parser.add_argument("--out", type=str, default="out/lab03", help="Output directory (relative to repo root)")
+    parser = argparse.ArgumentParser(
+        description="Lab 03 skeleton (implement functions first)."
+    )
+    parser.add_argument(
+        "--img", type=str, default="lenna.png", help="Input image from ./imgs/"
+    )
+    parser.add_argument(
+        "--out",
+        type=str,
+        default="out/lab03",
+        help="Output directory (relative to repo root)",
+    )
     args = parser.parse_args()
 
     import matplotlib
@@ -162,10 +220,14 @@ def main() -> int:
 
         kp2, d2 = detect_orb(warped, n_features=1000)
         matches = match_descriptors(d1, d2, method="bf_hamming", ratio_test=0.75)
-        h_est, inliers = estimate_homography_from_matches(kp1, kp2, matches, ransac_thresh=3.0)
+        h_est, inliers = estimate_homography_from_matches(
+            kp1, kp2, matches, ransac_thresh=3.0
+        )
 
         if inliers is not None:
-            draw_matches = [m for m, keep in zip(matches, inliers, strict=False) if int(keep) > 0]
+            draw_matches = [
+                m for m, keep in zip(matches, inliers, strict=False) if int(keep) > 0
+            ]
         else:
             draw_matches = matches
         draw_matches = draw_matches[:80]
